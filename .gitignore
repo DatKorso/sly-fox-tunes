@@ -29,6 +29,10 @@ env/
 # Environment Variables
 .env
 
+# Cookies (contains authentication data)
+*cookies*.txt
+cookies/
+
 # IDE
 .vscode/
 .idea/

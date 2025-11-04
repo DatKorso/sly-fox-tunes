@@ -17,6 +17,30 @@ class DownloadError(Exception):
     pass
 
 
+def _get_base_ydl_opts() -> dict[str, Any]:
+    """
+    Get base yt-dlp options including cookies if configured.
+    
+    Returns:
+        Dictionary with base yt-dlp options
+    """
+    from config.settings import settings
+    
+    opts: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+    
+    # Add cookies file if configured
+    if settings.cookies_file and settings.cookies_file.exists():
+        opts["cookiefile"] = str(settings.cookies_file)
+        logger.info(f"Using cookies file: {settings.cookies_file}")
+    elif settings.cookies_file:
+        logger.warning(f"Cookies file not found: {settings.cookies_file}")
+    
+    return opts
+
+
 async def get_video_info(url: str) -> dict[str, Any]:
     """
     Extract video information from YouTube URL.
@@ -35,11 +59,10 @@ async def get_video_info(url: str) -> dict[str, Any]:
     Raises:
         DownloadError: If video info cannot be extracted
     """
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
+    ydl_opts = _get_base_ydl_opts()
+    ydl_opts.update({
         "extract_flat": False,
-    }
+    })
 
     try:
         logger.info(f"Extracting video info from: {url}")
@@ -93,14 +116,13 @@ async def download_video(url: str, output_path: Path) -> Path:
     # Temporary file for initial download
     temp_download_path = output_path.with_name(f"{output_path.name}_temp")
     
-    ydl_opts = {
+    ydl_opts = _get_base_ydl_opts()
+    ydl_opts.update({
         # Download best quality video+audio
         "format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "outtmpl": str(temp_download_path),
-        "quiet": True,
-        "no_warnings": True,
         "merge_output_format": "mp4",
-    }
+    })
 
     try:
         logger.info(f"Starting video download from: {url}")
@@ -166,11 +188,10 @@ async def download_audio(url: str, output_path: Path) -> Path:
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ydl_opts = {
+    ydl_opts = _get_base_ydl_opts()
+    ydl_opts.update({
         "format": "bestaudio/best",
         "outtmpl": str(output_path),
-        "quiet": True,
-        "no_warnings": True,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -178,7 +199,7 @@ async def download_audio(url: str, output_path: Path) -> Path:
                 "preferredquality": "192",
             }
         ],
-    }
+    })
 
     try:
         logger.info(f"Starting audio download from: {url}")

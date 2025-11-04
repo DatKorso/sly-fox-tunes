@@ -49,6 +49,24 @@ cp .env.example .env
 # Отредактируйте .env файл, добавив ваш TELEGRAM_BOT_TOKEN
 ```
 
+### Настройка YouTube Cookies (рекомендуется)
+
+Для избежания блокировок YouTube ("Sign in to confirm you're not a bot") рекомендуется настроить cookies:
+
+```bash
+# См. подробную инструкцию
+cat docs/COOKIES-SETUP.md
+
+# Краткая версия:
+# 1. Экспортируйте cookies из браузера с помощью расширения
+# 2. Загрузите на сервер: ./scripts/upload_cookies.sh youtube_cookies.txt user@vps:/path/
+# 3. Добавьте в .env: COOKIES_FILE=youtube_cookies.txt
+```
+
+Подробная инструкция: [docs/COOKIES-SETUP.md](docs/COOKIES-SETUP.md)
+
+```
+
 ### Запуск
 
 ```bash

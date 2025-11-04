@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     temp_dir: Path = Path("temp")
     max_file_size_mb: int = 2000
 
+    # YouTube Cookies
+    cookies_file: Path | None = None
+
     # Logging
     log_level: str = "INFO"
 
