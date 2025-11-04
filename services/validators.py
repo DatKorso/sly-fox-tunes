@@ -14,6 +14,9 @@ def is_youtube_url(text: str) -> bool:
     - https://youtube.com/watch?v=VIDEO_ID
     - https://m.youtube.com/watch?v=VIDEO_ID
     - https://youtu.be/VIDEO_ID
+    - https://www.youtube.com/shorts/VIDEO_ID
+    - https://youtube.com/shorts/VIDEO_ID
+    - https://m.youtube.com/shorts/VIDEO_ID
     - http versions of above
 
     Args:
@@ -26,6 +29,8 @@ def is_youtube_url(text: str) -> bool:
         >>> is_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         True
         >>> is_youtube_url("https://youtu.be/dQw4w9WgXcQ")
+        True
+        >>> is_youtube_url("https://www.youtube.com/shorts/dQw4w9WgXcQ")
         True
         >>> is_youtube_url("Not a URL")
         False
@@ -43,6 +48,10 @@ def is_youtube_url(text: str) -> bool:
         r"^https?://m\.youtube\.com/watch\?v=[\w-]{11}",
         # Short youtu.be format
         r"^https?://youtu\.be/[\w-]{11}",
+        # YouTube Shorts format (www)
+        r"^https?://(www\.)?youtube\.com/shorts/[\w-]{11}",
+        # YouTube Shorts format (mobile)
+        r"^https?://m\.youtube\.com/shorts/[\w-]{11}",
     ]
 
     # Check if text matches any of the patterns
@@ -68,6 +77,8 @@ def extract_video_id(url: str) -> str | None:
         'dQw4w9WgXcQ'
         >>> extract_video_id("https://youtu.be/dQw4w9WgXcQ")
         'dQw4w9WgXcQ'
+        >>> extract_video_id("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+        'dQw4w9WgXcQ'
         >>> extract_video_id("Not a URL")
         None
     """
@@ -81,6 +92,11 @@ def extract_video_id(url: str) -> str | None:
 
     # Pattern for youtu.be format
     match = re.search(r"youtu\.be/([\w-]{11})", url)
+    if match:
+        return match.group(1)
+
+    # Pattern for YouTube Shorts format
+    match = re.search(r"youtube\.com/shorts/([\w-]{11})", url)
     if match:
         return match.group(1)
 
