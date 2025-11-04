@@ -20,6 +20,7 @@ class DownloadError(Exception):
 def _get_base_ydl_opts() -> dict[str, Any]:
     """
     Get base yt-dlp options including cookies if configured.
+    Uses multiple fallback strategies to avoid bot detection.
     
     Returns:
         Dictionary with base yt-dlp options
@@ -29,21 +30,121 @@ def _get_base_ydl_opts() -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
+        # Anti-bot measures
+        "nocheckcertificate": True,
+        "prefer_insecure": False,
+        
+        # Enhanced extractor arguments for better bot evasion
+        "extractor_args": {
+            "youtube": {
+                # Use multiple clients as fallback (ios works without cookies often)
+                "player_client": ["ios", "android", "web"],
+                "player_skip": ["webpage", "configs"],
+                # Skip signature decryption issues
+                "skip": ["dash", "hls"],
+            }
+        },
+        
+        # Mimic real iOS device (often bypasses bot detection)
+        "http_headers": {
+            "User-Agent": "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+            "Accept": "*/*",
+            "Accept-Language": "en-us,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "X-Youtube-Client-Name": "5",
+            "X-Youtube-Client-Version": "19.09.3",
+        },
+        
+        # Additional options to avoid restrictions
+        "age_limit": None,  # Don't filter by age
+        "geo_bypass": True,  # Try to bypass geo restrictions
+        "no_check_certificate": True,
     }
     
-    # Add cookies file if configured
-    if settings.cookies_file and settings.cookies_file.exists():
+    # Priority 1: Use cookies from browser (most reliable)
+    if settings.cookies_from_browser:
+        opts["cookiesfrombrowser"] = (settings.cookies_from_browser,)
+        logger.info(f"Using cookies from browser: {settings.cookies_from_browser}")
+    # Priority 2: Use cookies file
+    elif settings.cookies_file and settings.cookies_file.exists():
         opts["cookiefile"] = str(settings.cookies_file)
         logger.info(f"Using cookies file: {settings.cookies_file}")
     elif settings.cookies_file:
         logger.warning(f"Cookies file not found: {settings.cookies_file}")
+    else:
+        logger.info("No cookies configured. Using iOS client fallback for bot detection bypass.")
     
+    return opts
+
+
+def _get_fallback_ydl_opts(client_type: str = "ios") -> dict[str, Any]:
+    """
+    Get yt-dlp options with specific client fallback.
+    Used when primary method fails.
+    
+    Args:
+        client_type: Client to use ("ios", "android", "mweb", "tv_embedded")
+    
+    Returns:
+        Dictionary with yt-dlp options for specific client
+    """
+    from config.settings import settings
+    
+    # Client-specific configurations
+    client_configs = {
+        "ios": {
+            "player_client": ["ios"],
+            "user_agent": "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+            "client_name": "5",
+            "client_version": "19.09.3",
+        },
+        "android": {
+            "player_client": ["android"],
+            "user_agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+            "client_name": "3", 
+            "client_version": "19.09.37",
+        },
+        "mweb": {
+            "player_client": ["mweb"],
+            "user_agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "client_name": "2",
+            "client_version": "2.20240111.09.00",
+        },
+        "tv_embedded": {
+            "player_client": ["tv_embedded"],
+            "user_agent": "Mozilla/5.0 (PlayStation 4 5.55) AppleWebKit/601.2 (KHTML, like Gecko)",
+            "client_name": "85",
+            "client_version": "2.0",
+        },
+    }
+    
+    config = client_configs.get(client_type, client_configs["ios"])
+    
+    opts: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": config["player_client"],
+                "player_skip": ["webpage", "configs"],
+            }
+        },
+        "http_headers": {
+            "User-Agent": config["user_agent"],
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    }
+    
+    logger.info(f"Using fallback client: {client_type}")
     return opts
 
 
 async def get_video_info(url: str) -> dict[str, Any]:
     """
     Extract video information from YouTube URL.
+    Uses multiple fallback strategies if primary method fails.
 
     Args:
         url: YouTube video URL
@@ -57,17 +158,21 @@ async def get_video_info(url: str) -> dict[str, Any]:
             - view_count: Number of views
 
     Raises:
-        DownloadError: If video info cannot be extracted
+        DownloadError: If video info cannot be extracted with any method
     """
+    # Try primary method first
     ydl_opts = _get_base_ydl_opts()
     ydl_opts.update({
         "extract_flat": False,
     })
 
+    logger.info(f"Extracting video info from: {url}")
+    
+    # Fallback clients to try if primary fails
+    fallback_clients = ["ios", "android", "mweb", "tv_embedded"]
+    
+    # Try primary method
     try:
-        logger.info(f"Extracting video info from: {url}")
-
-        # Run yt-dlp in executor to avoid blocking
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: _extract_info_sync(url, ydl_opts))
 
@@ -82,9 +187,42 @@ async def get_video_info(url: str) -> dict[str, Any]:
         logger.info(f"Successfully extracted info for: {result['title']}")
         return result
 
-    except Exception as e:
-        logger.error(f"Failed to extract video info: {e}")
-        raise DownloadError(f"Could not get video information: {e}") from e
+    except Exception as primary_error:
+        logger.warning(f"Primary method failed: {primary_error}")
+        
+        # Try fallback clients
+        for client in fallback_clients:
+            try:
+                logger.info(f"Trying fallback client: {client}")
+                fallback_opts = _get_fallback_ydl_opts(client)
+                fallback_opts.update({"extract_flat": False})
+                
+                loop = asyncio.get_event_loop()
+                info = await loop.run_in_executor(
+                    None, lambda: _extract_info_sync(url, fallback_opts)
+                )
+
+                result = {
+                    "title": info.get("title", "Unknown"),
+                    "duration": info.get("duration", 0),
+                    "thumbnail": info.get("thumbnail", ""),
+                    "uploader": info.get("uploader", "Unknown"),
+                    "view_count": info.get("view_count", 0),
+                }
+
+                logger.success(f"Fallback {client} succeeded! Extracted: {result['title']}")
+                return result
+
+            except Exception as e:
+                logger.warning(f"Fallback {client} failed: {e}")
+                continue
+        
+        # All methods failed
+        logger.error(f"All extraction methods failed for: {url}")
+        raise DownloadError(
+            f"Could not get video information after trying all methods. "
+            f"Last error: {primary_error}"
+        ) from primary_error
 
 
 def _extract_info_sync(url: str, ydl_opts: dict[str, Any]) -> dict[str, Any]:
